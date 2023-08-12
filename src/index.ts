@@ -22,7 +22,7 @@ class HttpError extends Error {
 class Authenticator {
     private client: AxiosInstance
     private jar: CookieJar
-    private userAgent = "Mozilla/5.0 (X11 Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
+    private userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
     private accessToken: string | null = null
     private proxy?: {
         httpAgent: CookieAgent<http.Agent>
@@ -47,14 +47,14 @@ class Authenticator {
     }
 
     async begin(): Promise<void> {
-        const url = "https://explorer.api.openai.com/api/auth/csrf"
+        const url = "https://chat.openai.com/api/auth/csrf"
         const headers = {
-            "Host": "explorer.api.openai.com",
+            "Host": "chat.openai.com",
             "Accept": "*/*",
             "Connection": "keep-alive",
             "User-Agent": this.userAgent,
             "Accept-Language": "en-GB,en-USq=0.9,enq=0.8",
-            "Referer": "https://explorer.api.openai.com/auth/login",
+            "Referer": "https://chat.openai.com/auth/login",
             "Accept-Encoding": "gzip, deflate, br",
         }
         const response = await this.client.get(url, { headers })
@@ -67,10 +67,10 @@ class Authenticator {
     }
 
     private async partOne(csrfToken: string): Promise<void> {
-        const url = "https://explorer.api.openai.com/api/auth/signin/auth0?prompt=login"
+        const url = "https://chat.openai.com/api/auth/signin/auth0?prompt=login"
         const payload = `callbackUrl=%2F&csrfToken=${csrfToken}&json=true`
         const headers = {
-            "Host": "explorer.api.openai.com",
+            "Host": "chat.openai.com",
             "User-Agent": this.userAgent,
             "Content-Type": "application/x-www-form-urlencoded",
             "Accept": "*/*",
@@ -80,13 +80,13 @@ class Authenticator {
             "Sec-Fetch-Site": "same-origin",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Dest": "empty",
-            "Referer": "https://explorer.api.openai.com/auth/login",
-            "Accept-Encoding": "gzip, deflate",
+            "Referer": "https://chat.openai.com/auth/login",
+            "Accept-Encoding": "gzip, deflate"
         }
         const response = await this.client.post(url, payload, { headers })
         if (response.status === 200 && response.data.url) {
             const url2 = response.data.url
-            if (url2 === 'https://explorer.api.openai.com/api/auth/error?error=OAuthSignin' || url2.includes('error')) {
+            if (url2 === 'https://chat.openai.com/api/auth/error?error=OAuthSignin' || url2.includes('error')) {
                 throw new HttpError('partOne', response.status, 'You have been rate limited. Please try again later.')
             }
             await this.partTwo(url2)
@@ -102,7 +102,7 @@ class Authenticator {
             "Connection": "keep-alive",
             "User-Agent": this.userAgent,
             "Accept-Language": "en-US,enq=0.9",
-            "Referer": "https://explorer.api.openai.com/",
+            //"Referer": "https://chat.openai.com/",
         }
         const response = await this.client.get(url, { headers })
         if (response.status === 302 || response.status === 200) {
@@ -116,15 +116,18 @@ class Authenticator {
 
     private async partThree(state: string): Promise<void> {
         const url = `https://auth0.openai.com/u/login/identifier?state=${state}`
+        const emailEncoded = Authenticator.urlEncode(this.email)
         const headers = {
             "Host": "auth0.openai.com",
             "Accept": "text/html,application/xhtml+xml,application/xmlq=0.9,*/*q=0.8",
             "Connection": "keep-alive",
             "User-Agent": this.userAgent,
             "Accept-Language": "en-US,enq=0.9",
-            "Referer": "https://explorer.api.openai.com/",
+            "Content-Type":    "application/x-www-form-urlencoded",
+            "Referer": `https://auth0.openai.com/u/login/identifier?state=${state}`
         }
-        const response = await this.client.get(url, { headers })
+        const payload = `state=${state}&username=${emailEncoded}&js-available=false&webauthn-available=true&is-brave=false&webauthn-platform-available=true&action=default`
+        const response = await this.client.get(url, { headers, data: payload });
         if (response.status === 200) {
             await this.partFour(state)
         } else {
@@ -133,19 +136,19 @@ class Authenticator {
     }
 
     private async partFour(state: string): Promise<void> {
-        const url = `https://auth0.openai.com/u/login/identifier?state=${state}`
-        const emailEncoded = Authenticator.urlEncode(this.email)
-
-        const payload = `state=${state}&username=${emailEncoded}&js-available=false&webauthn-available=true&is-brave=false&webauthn-platform-available=true&action=default `
+        const url = `https://auth0.openai.com/u/login/identifier?state=${state}`;
+        const emailEncoded = Authenticator.urlEncode(this.email);
+        const passwordEncoded = Authenticator.urlEncode(this.password);
+        const payload = `state=${state}&username=${emailEncoded}&password=${passwordEncoded}&action=default `;
         const headers = {
             "Host": "auth0.openai.com",
             "Origin": "https://auth0.openai.com",
             "Connection": "keep-alive",
             "Accept": "text/html,application/xhtml+xml,application/xmlq=0.9,*/*q=0.8",
             "User-Agent": this.userAgent,
-            "Referer": `https://auth0.openai.com/u/login/identifier?state=${state}`,
+            "Referer": `https://auth0.openai.com/u/login/password?state=${state}`,
             "Accept-Language": "en-US,enq=0.9",
-            "Content-Type": "application/x-www-form-urlencoded",
+            "Content-Type": "application/x-www-form-urlencoded"
         }
         const response = await this.client.post(url, payload, { headers })
         if (response.status === 302 || response.status === 200) {
@@ -175,7 +178,7 @@ class Authenticator {
     }
 
     async getAccessToken(): Promise<string> {
-        const response = await this.client.get('https://explorer.api.openai.com/api/auth/session', { headers: { 'User-Agent': this.userAgent } })
+        const response = await this.client.get('https://chat.openai.com/api/auth/session', { headers: { 'User-Agent': this.userAgent } })
         if (response.status === 200) {
             this.accessToken = response.data.accessToken
             return this.accessToken!
